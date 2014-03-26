@@ -1,0 +1,82 @@
+#!/bin/bash
+
+
+usrnn=$(echo $1 | tr '[:upper:]' '[:lower:]')
+posts=$(wget -qO- "http://api.tumblr.com/v2/blog/$usrnn.tumblr.com/posts/?api_key=[PLACE YOUR API KEY HERE]");
+posts=$(echo "$posts" | jq '.response.blog.posts');
+echo $posts
+archivingp=$(psql spidr -t -c "select count(*) from archiving where username = lower('$usrnn')");
+
+if [ $archivingp == 0 ] 
+then
+psql spidr -c  "insert into archiving (username, post_count) values (lower('$usrnn'), $posts)"
+
+initcount=$(psql spidr -t -c "select count(*) from posts where username = '$usrnn'")
+psql spidr -c "update userstats set postcount = $initcount where username = lower('$usrnn')"
+psql spidr -c "insert into userstats (username, postcount) values (lower('$usrnn'), $initcount)";
+for (( offset = 0; offset<"$posts"; offset=$(($offset + 20))))
+do
+	status=0
+	while [ $status != 200 ]
+	do
+		query=$(echo "(username, post_link, post_id, reblog_key, post_date, archive_date, title, post_html, vec) values ")
+		result=$(wget -qO- "http://api.tumblr.com/v2/blog/$usrnn.tumblr.com/posts/?api_key=[PLACE YOUR API KEY HERE]&offset=$offset&filter=text")	
+		post_id=$(echo "$result" | jq '.response.posts[0].id')
+		status=$(echo "$result" | jq '.meta.status')
+		if [ $status != 200 ]
+		then
+			echo "tumblr is being a jerk, sleeping for a minute"
+			sleep 1m
+		fi 
+	done 
+	looped=0
+	count=$(psql spidr -t -c "select count(*) from posts where post_id = $post_id")
+	archivingp=$(psql spidr -t -c "select count(*) from archiving where username = lower('$usrnn')");
+	if [ $count != 0 -a $archivingp == 0 ] 
+	then
+		break
+	fi
+	for i in {0..19}
+	do
+		post_id=$(echo "$result" | jq '.response.posts['$i'].id')
+		count=$(psql spidr -t -c "select count(*) from posts where post_id = $post_id")
+		if [ $count != 0 ]
+		then 
+			ownedby=$(psql spidr -t -c  "select username from posts where post_id = $post_id")
+			ownedby=$(echo $ownedby | sed '/^$/d;s/[[:blank:]]//g')
+			if [ "$ownedby" != "$usrnn" ] 
+			then 
+				echo "update posts set username = lower( '$usrnn') where username = '$ownedby'"
+				psql spidr -c "update posts set username = lower('$usrnn') where username = '$ownedby'"
+				psql spidr -c "update userstats set postcount = postcount + (select count(*) from posts where username = '$ownedby')"
+				psql spidr -c "delete from userstats where username = '$ownedby'"
+			fi 
+		fi
+		if [ "$post_id" != "null" -a $count == 0 ]
+		then
+			looped=1
+			username=$(echo "$result" | jq --raw-output '.response.posts['$i'].blog_name')
+			post_date=$(echo "$result" | jq --raw-output '.response.posts['$i'].timestamp')
+			state=$(echo "$result" | jq --raw-output '.response.posts['$i'].state')
+			post_url=$(echo "$result" | jq --raw-output '.response.posts['$i'].post_url')
+			title=$(echo "$result" | jq --raw-output '.response.posts['$i'].title')
+			text=$(echo "$result" | jq --raw-output '.response.posts['$i'].caption + .response.posts['$i'].body + .response.posts['$i'].text + .response.posts['$i'].text + .response.posts['$i'].description + .response.posts['$i'].answer + .response.posts['$i'].question')
+			reblog_key=$(echo "$result" | jq --raw-output '.response.posts['$i'].reblog_key')
+			title=$(echo $title | sed "s/'/''/g")
+			text=$(echo $text | sed "s/'/''/g")
+			query=$(echo "$query (lower('$username'), '$post_url', $post_id, '$reblog_key', to_timestamp($post_date), now(), '$title', '$text', to_tsvector(coalesce('$title', '') || ' ' || coalesce('$text', ''))),") 
+		fi
+	done
+	query=$(echo "${query%?}")
+	
+	if [ $looped != 0 ] 
+	then
+		inserted=$(psql spidr -c "insert into posts $query")
+		inserted=$(echo $inserted | sed 's/^.*0 //');
+		psql spidr -c "update userstats set postcount = postcount + $inserted where username = '$username'"
+	else 
+		break 
+	fi
+done
+psql spidr -c "delete from archiving where username = lower('$usrnn')"
+fi

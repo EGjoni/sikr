@@ -1,0 +1,10 @@
+Dev Notes: 
+
+We would probably like to refresh posts that have been made since the last index of a blog. However, we don't want to reindex
+the entire blog every time we rescan. So we would probably want to keep incrementing the offset only UNTIL we hit a post id we've
+seen before. However, this has potential to be tripped up if the user makes a post while our engine is indexing. Because we would then have 
+gaps in the index. To this end, we probably want a "date_indexed" clumn. Where we only stop indexing if the post id has been seen 
+before AND the difference between the current date and the date indexed is greater than whatever value turns out to be appropriate.  
+
+
+It seems reblogs each have unique post ids and are tied together by reblog keys. Probably irrelevant for us. 
