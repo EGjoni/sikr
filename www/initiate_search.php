@@ -7,7 +7,6 @@ $con = pg_connect("dbname=$db user=$user")
 
 $query = $_GET["query"];
 $username = $_GET["username"];
-$ip = $_SERVER['REMOTE_ADDR'];
 
 #check to see if query contains an even number of quotation marks
 if (substr_count($query, "\"") %2 == 0 && substr_count($query, "\"") > 0) {
@@ -16,7 +15,7 @@ if (substr_count($query, "\"") %2 == 0 && substr_count($query, "\"") > 0) {
 	$query = str_replace("\" ", "\"", $query);
 	$query = str_replace(" \"", "\"", $query);
 	$parity = 0;
-	#echo $query;
+	
 	if ( substr($query, 0, 1) == "\"") {
 		$query = substr($query, 1, strlen($query));
 		$parity = 1;
@@ -49,7 +48,7 @@ $result = pg_execute($con, "get_results", array($query, $username));
 	
 echo json_encode(pg_fetch_all($result));
 pg_close($con); 
-#echo $query;
+
 ?>
 
 
