@@ -7,7 +7,6 @@ $con = pg_connect("dbname=$db user=$user")
 
 $query = $_GET["query"];
 $username = $_GET["username"];
-$ip = $_SERVER['REMOTE_ADDR'];
 
 #check to see if query contains an even number of quotation marks
 if (substr_count($query, "\"") %2 == 0 && substr_count($query, "\"") > 0) {
